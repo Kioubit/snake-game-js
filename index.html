@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Snake Game</title>
+    <style>
+        table {
+            border-spacing: 0;
+            display: inline-block;
+        }
+        th, td {
+            min-width: 1em;
+            padding-bottom: 0;
+            padding-right: 0.8em;
+        }
+        body {
+            color: white;
+            background-color:#383a45;
+        }
+    </style>
+</head>
+<body>
+<h3>Snake Game</h3>
+<canvas id="myCanvas" width="600" height="400" style="border:1px solid #c3c3c3; background-color: #383a45">
+    Your browser does not support the canvas element</canvas><br>
+<table style="border: 1px solid white; padding: 0.4em; margin-top: 1em; ">
+    <tr>
+        <td><b>Points:</b></td>
+        <td><span id="pointDisplay">0</span></td>
+    </tr>
+    <tr>
+        <td><b>Collisions:</b></td>
+        <td><span id="collisionDisplay">0</span></td>
+    </tr>
+    <tr>
+        <td><b>Feeding:</b></td>
+        <td><span id="feedDisplay">0</span></td>
+    </tr>
+</table>
+<table style="padding: 0.4em; margin-top: 1em; margin-left: 2em">
+    <tr>
+        <td>Steering:</td>
+        <td>W/A/S/D</td>
+    </tr>
+    <tr>
+        <td>Feed:</td>
+        <td>F</td>
+    </tr>
+    <tr>
+        <td>Start game:</td>
+        <td>G</td>
+    </tr>
+</table>
+<br>
+<button style="margin-top: 0.2em" id="shareButton" disabled onclick="share()">Share your score</button>
+<script>
+    const canvas = document.getElementById("myCanvas");
+    const maxX = canvas.width;
+    const maxY = canvas.height;
+    const directions = {
+        UP: "up",
+        DOWN: "down",
+        LEFT: "left",
+        RIGHT: "right"
+    }
+    const foodMap = new Map();
+    const snakeMap = new Map();
+    let hasEaten = true;
+    let score_points = 0;
+    let score_collisions = 0;
+    let score_feeding = 1;
+    let animationPromiseResolve;
+    let animationClearPromiseResolve;
+    //const fpsInterval = 1000 / 70;
+    //const animationDelta = 2;
+    const fpsInterval = 1000 / 40;
+    const animationDelta = 4;
+    class animation {
+        dx = 0;
+        dy = 0;
+        workFunction;
+        clear = false;
+        constructor(x,y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        asClear(){
+            this.clear = true;
+        }
+        setDirection(direction) {
+            switch (direction) {
+                case directions.UP:
+                    this.yLimit = this.y-animationDelta;
+                    this.y = this.y + 20;
+                    this.workFunction = this.up;
+                    break;
+                case directions.DOWN:
+                    this.workFunction = this.down;
+                    break;
+                case directions.LEFT:
+                    this.xLimit = this.x-animationDelta;
+                    this.x = this.x + 20;
+                    this.workFunction = this.left;
+                    break;
+                case directions.RIGHT:
+                    this.workFunction = this.right;
+                    break;
+            }
+        }
+
+        up() {
+            this.dx =20;
+            this.dy =animationDelta;
+            this.y -= animationDelta;
+            return this.y === this.yLimit;
+        }
+        down() {
+            this.dx =20;
+            this.dy +=animationDelta;
+            return this.dy >20;
+        }
+        left() {
+            this.dy =20;
+            this.dx =animationDelta;
+            this.x -= animationDelta;
+            return this.x === this.xLimit;
+        }
+        right() {
+            this.dy =20;
+            this.dx += animationDelta;
+            return this.dx > 20;
+        }
+        animate() {
+            if (this.then) {
+                let now =  window.performance.now();
+                let elapsed =  now - this.then;
+                if (elapsed <= fpsInterval) {
+                    requestAnimationFrame(this.animate.bind(this));
+                    return;
+                }
+                this.then = now - (elapsed % fpsInterval);
+            } else {
+                this.then = window.performance.now();
+            }
+            if (this.workFunction.call(this)) {
+                if (this.clear) {
+                    animationClearPromiseResolve();
+                } else {
+                    animationPromiseResolve();
+                }
+                return;
+            }
+            if (this.clear) {
+                ctx.clearRect(this.x,this.y,this.dx,this.dy);
+            } else {
+                ctx.fillStyle = "#d32323";
+                ctx.fillRect(this.x,this.y,this.dx,this.dy);
+            }
+             requestAnimationFrame(this.animate.bind(this));
+        }
+    }
+
+    class snake_point {
+        isTail;
+        isHead;
+        positionX;
+        positionY;
+        oldPosX;
+        oldPosY;
+        next = null;
+        lastDirection = directions.UP;
+        constructor(isTail, isHead, positionX, positionY) {
+            this.isTail = isTail;
+            this.isHead = isHead;
+            this.positionX = positionX;
+            this.positionY = positionY;
+        }
+       async draw(ctx, drawDirection){
+            if (drawDirection === undefined) {
+                drawDirection = directions.UP;
+            }
+            if (this.isHead) {
+                let animationObj = new animation(this.positionX,this.positionY)
+                animationObj.setDirection(drawDirection);
+                animationObj.animate();
+            }
+        }
+        drawWithoutAnimation(ctx) {
+            ctx.fillStyle = "#d32323";
+            ctx.fillRect(this.positionX,this.positionY,20,20);
+        }
+        move(direction,ctx) {
+            if (this.isHead) {
+                if (direction === directions.DOWN && this.lastDirection === directions.UP) {
+                    direction = this.lastDirection;
+                }
+                if (direction === directions.UP && this.lastDirection === directions.DOWN) {
+                    direction = this.lastDirection;
+                }
+                if (direction === directions.LEFT && this.lastDirection === directions.RIGHT) {
+                    direction = this.lastDirection;
+                }
+                if (direction === directions.RIGHT && this.lastDirection === directions.LEFT) {
+                    direction = this.lastDirection;
+                }
+            }
+            this.oldPosY = this.positionY;
+            this.oldPosX = this.positionX;
+
+            switch (direction) {
+                case directions.UP:
+                    this.positionY -=20;
+                    break;
+                case directions.DOWN:
+                    this.positionY +=20;
+                    break;
+                case directions.LEFT:
+                    this.positionX -=20;
+                    break;
+                case directions.RIGHT:
+                    this.positionX += 20;
+                    break;
+            }
+
+            if (this.isHead) {
+                this.draw(ctx,direction);
+                if (this.positionX >= maxX || this.positionY >= maxY || this.positionX < 0 || this.positionY < 0) {
+                    // Out of bounds
+                    animationPromiseResolve();
+                    animationClearPromiseResolve();
+                    return false;
+                }
+                if (foodMap.has([this.positionX,this.positionY].join(','))) {
+                    foodMap.delete([this.positionX,this.positionY].join(','));
+                    hasEaten = true;
+                }
+                if (snakeMap.has([this.positionX,this.positionY].join(','))) {
+                    score_collisions++;
+                    document.getElementById("collisionDisplay").innerText = score_collisions.toString();
+                    ctx.fillStyle = "#ff8b00";
+                    ctx.fillRect(this.oldPosX,this.oldPosY,20,20);
+                    snakeMap.delete([this.positionX,this.positionY].join(','));
+                    if (!confirm("Collision. Continue?")) {
+                        animationPromiseResolve();
+                        animationClearPromiseResolve();
+                        return false;
+                    }
+                }
+                snakeMap.set([this.positionX,this.positionY].join(','), 1)
+            }
+
+            if (this.isTail && hasEaten) {
+                this.isTail = false;
+                hasEaten = false;
+                this.next = new snake_point(true, false, this.oldPosX,this.oldPosY);
+                this.next.draw(ctx);
+                generateFood();
+                score_points++;
+                document.getElementById("pointDisplay").innerText = score_points.toString();
+                animationClearPromiseResolve();
+            } else {
+                if (this.isTail) {
+                    snakeMap.delete([this.oldPosX,this.oldPosY].join(','))
+                    let animationObj = new animation(this.oldPosX,this.oldPosY)
+                    animationObj.asClear();
+                    animationObj.setDirection(direction);
+                    animationObj.animate();
+                }
+                if (this.next !== null) {
+                    this.next.move(this.lastDirection,ctx);
+                }
+            }
+            this.lastDirection = direction;
+            return true;
+        }
+    }
+
+
+    let ctx = canvas.getContext("2d");
+
+
+    let gridX = canvas.width / 20;
+    let gridY = canvas.height / 20;
+
+    let snake_head = new snake_point(false, true, gridX/2 * 20,gridY/2 *20);
+    snake_head.drawWithoutAnimation(ctx);
+    let running = false;
+    let selectedDirection = directions.UP;
+    async function run() {
+        reset();
+        let continuePlaying = true;
+        running = true;
+        while (continuePlaying){
+            let animationPromise =  new Promise(resolve => {
+                animationPromiseResolve =resolve;
+            })
+            let animationClearPromise =  new Promise(resolve => {
+                animationClearPromiseResolve =resolve;
+            })
+            continuePlaying = snake_head.move(selectedDirection, ctx);
+            await animationClearPromise;
+            await animationPromise;
+        }
+        ctx.fillStyle = "#ff8b00";
+        ctx.fillRect(snake_head.oldPosX,snake_head.oldPosY,20,20)
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(15,22,180,120)
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#00a4ff";
+        ctx.font = "30px Arial";
+        ctx.fillText("Game over", 20, 50,170);
+        ctx.font = "20px Arial";
+        ctx.fillText("Points: " + score_points, 20, 80,170);
+        ctx.fillText("Collisions: " + score_collisions, 20, 100,170);
+        ctx.fillText("Feeding: " + score_feeding, 20, 120,170);
+        running = false;
+        document.getElementById("shareButton").disabled = false;
+    }
+
+    function share() {
+        if (running) {
+            alert("Game in progress")
+            return;
+        }
+        ctx.globalCompositeOperation='destination-over';
+        ctx.fillStyle='#383a45';
+        ctx.fillRect(0,0,canvas.width,canvas.height)
+        ctx.globalCompositeOperation='source-over';
+        const dataURL = canvas.toDataURL();
+        const target = new Image();
+        target.src = dataURL;
+        const downloadLink = document.createElement("a");
+        downloadLink.href = dataURL;
+        downloadLink.download = "snake-score" + Math.floor(Date.now() / 1000);
+        downloadLink.innerText = "Download image";
+        let w = window.open("");
+        w.document.write("<h2>Snake Game Score</h2>" + target.outerHTML + "<br>" + downloadLink.outerHTML);
+    }
+    function reset() {
+        document.getElementById("pointDisplay").innerText = "0";
+        document.getElementById("feedDisplay").innerText = "1";
+        document.getElementById("collisionDisplay").innerText = "0";
+        document.getElementById("shareButton").disabled = true;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasEaten = true;
+        selectedDirection = directions.UP;
+        score_points = 0;
+        score_collisions = 0;
+        score_feeding = 1;
+        snakeMap.clear();
+        foodMap.clear();
+        snake_head = new snake_point(true, true, gridX/2 * 20,gridY/2 *20);
+        snake_head.drawWithoutAnimation(ctx);
+    }
+
+    document.addEventListener("keydown", function (event) {
+        switch (event.key) {
+            case "w":
+                selectedDirection = directions.UP;
+                break;
+            case "a":
+                selectedDirection = directions.LEFT;
+                break;
+            case "s":
+                selectedDirection = directions.DOWN;
+                break;
+            case "d":
+                selectedDirection = directions.RIGHT;
+                break;
+            case "f":
+                if (!running) {
+                    return;
+                }
+                score_feeding++;
+                document.getElementById("feedDisplay").innerText = score_feeding.toString();
+                generateFood();
+                break;
+            case "g":
+                if (!running) {
+                    run();
+                }
+                break;
+            default:
+                if (event.getModifierState('CapsLock')) {
+                    alert("Error: Caps Lock is enabled")
+                }
+        }
+
+    });
+
+    class food {
+        gridPosX;
+        gridPosY;
+        constructor(gridPosX, gridPosY) {
+            this.gridPosX = gridPosX;
+            this.gridPosY = gridPosY;
+        }
+        draw(ctx){
+            ctx.fillStyle = "#76bb2b";
+            ctx.fillRect(this.gridPosX,this.gridPosY,20,20);
+        }
+    }
+
+
+    async function generateFood() {
+        let gridPosX = 0;
+        let gridPosY = 0;
+        while (true) {
+            gridPosX = randomNumber(0,gridX-1)*20;
+            gridPosY = randomNumber(0,gridY-1)*20;
+            let testPos = [gridPosX,gridPosY].join(',');
+            if (foodMap.has(testPos) || snakeMap.has(testPos)) {
+                if (foodMap.size > 40 || snakeMap.size >= gridX*gridY) {
+                    break;
+                }
+            } else {
+                let foodItem = new food(gridPosX,gridPosY)
+                foodItem.draw(ctx);
+                foodMap.set([gridPosX,gridPosY].join(','), 1)
+                break;
+            }
+        }
+
+    }
+
+
+    function randomNumber(min, max) {
+        min = Math.ceil(min);
+        max = Math.floor(max);
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+</script>
+
+</body>
+</html>
+
